@@ -31,6 +31,9 @@ int main()
     stdio_init_all();
     printf("Start LED blink\n");
 
+    SEGGER_SYSVIEW_Conf();
+    SEGGER_SYSVIEW_Start();
+
     struct led_task_arg arg1 = { 15, 100 };
     xTaskCreate(led_task, "LED_Task 1", 256, &arg1, 1, NULL);
 
