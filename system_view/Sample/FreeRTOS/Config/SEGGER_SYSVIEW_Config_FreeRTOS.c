@@ -45,40 +45,87 @@
 *       SystemView version: 3.30                                    *
 *                                                                    *
 **********************************************************************
----------------------------END-OF-HEADER------------------------------
-File    : SEGGER_RTT_Syscalls_GCC.c
-Purpose : Low-level functions for using printf() via RTT in GCC.
-          To use RTT for printf output, include this file in your 
-          application.
-Revision: $Rev: 20755 $
-----------------------------------------------------------------------
+-------------------------- END-OF-HEADER -----------------------------
+
+File    : SEGGER_SYSVIEW_Config_FreeRTOS.c
+Purpose : Sample setup configuration of SystemView with FreeRTOS.
+Revision: $Rev: 7745 $
 */
-#if (defined __GNUC__) && !(defined __SES_ARM) && !(defined __CROSSWORKS_ARM) && !(defined __ARMCC_VERSION) && !(defined __CC_ARM)
+#include "FreeRTOS.h"
+#include "SEGGER_SYSVIEW.h"
 
-#include <reent.h>  // required for _write_r
-#include "SEGGER_RTT.h"
-
+extern const SEGGER_SYSVIEW_OS_API SYSVIEW_X_OS_TraceAPI;
 
 /*********************************************************************
 *
-*       Types
+*       Defines, configurable
 *
 **********************************************************************
 */
-//
-// If necessary define the _reent struct
-// to match the one passed by the used standard library.
-//
-struct _reent;
+// The application name to be displayed in SystemViewer
+#define SYSVIEW_APP_NAME        "FreeRTOS Demo Application"
 
-/*********************************************************************
+// The target device name
+#define SYSVIEW_DEVICE_NAME     "Cortex-M4"
+
+// Frequency of the timestamp. Must match SEGGER_SYSVIEW_GET_TIMESTAMP in SEGGER_SYSVIEW_Conf.h
+#define SYSVIEW_TIMESTAMP_FREQ  (configCPU_CLOCK_HZ)
+
+// System Frequency. SystemcoreClock is used in most CMSIS compatible projects.
+#define SYSVIEW_CPU_FREQ        configCPU_CLOCK_HZ
+
+// The lowest RAM address used for IDs (pointers)
+#define SYSVIEW_RAM_BASE        (0x10000000)
+
+/********************************************************************* 
 *
-*       Function prototypes
+*       _cbSendSystemDesc()
 *
-**********************************************************************
+*  Function description
+*    Sends SystemView description strings.
 */
-_ssize_t _write  (int file, const void *ptr, size_t len);
-_ssize_t _write_r(struct _reent *r, int file, const void *ptr, size_t len);
+static void _cbSendSystemDesc(void) {
+  SEGGER_SYSVIEW_SendSysDesc("N="SYSVIEW_APP_NAME",D="SYSVIEW_DEVICE_NAME",O=FreeRTOS");
+  SEGGER_SYSVIEW_SendSysDesc("I#15=SysTick");
+}
+
+#ifndef   USE_CYCCNT_TIMESTAMP
+#define USE_CYCCNT_TIMESTAMP    1
+#endif
+
+#define SCB_ICSR  (*(volatile U32*) (0xE000ED04uL)) // Interrupt Control State Register
+#define SCB_ICSR_PENDSTSET_MASK     (1UL << 26)     // SysTick pending bit
+#define SYST_RVR  (*(volatile U32*) (0xE000E014uL)) // SysTick Reload Value Register
+#define SYST_CVR  (*(volatile U32*) (0xE000E018uL)) // SysTick Current Value Register
+
+
+U32 SEGGER_SYSVIEW_X_GetTimestamp(void) {
+#if USE_CYCCNT_TIMESTAMP
+    U32 TickCount;
+    U32 Cycles;
+    U32 CyclesPerTick;
+    //
+    // Get the cycles of the current system tick.
+    // SysTick is down-counting, subtract the current value from the number of cycles per tick.
+    //
+    CyclesPerTick = SYST_RVR + 1;
+    Cycles = (CyclesPerTick - SYST_CVR);
+    //
+    // Get the system tick count.
+    //
+    TickCount = SEGGER_SYSVIEW_TickCnt;
+    //
+    // If a SysTick interrupt is pending, re-read timer and adjust result
+    //
+    if ((SCB_ICSR & SCB_ICSR_PENDSTSET_MASK) != 0) {
+        Cycles = (CyclesPerTick - SYST_CVR);
+        TickCount++;
+    }
+    Cycles += TickCount * CyclesPerTick;
+
+    return Cycles;
+#endif
+}
 
 /*********************************************************************
 *
@@ -86,39 +133,10 @@ _ssize_t _write_r(struct _reent *r, int file, const void *ptr, size_t len);
 *
 **********************************************************************
 */
-
-/*********************************************************************
-*
-*       _write()
-*
-* Function description
-*   Low-level write function.
-*   libc subroutines will use this system routine for output to all files,
-*   including stdout.
-*   Write data via RTT.
-*/
-_ssize_t _write(int file, const void *ptr, size_t len) {
-  (void) file;  /* Not used, avoid warning */
-  SEGGER_RTT_Write(0, ptr, len);
-  return len;
+void SEGGER_SYSVIEW_Conf(void) {
+  SEGGER_SYSVIEW_Init(SYSVIEW_TIMESTAMP_FREQ, SYSVIEW_CPU_FREQ, 
+                      &SYSVIEW_X_OS_TraceAPI, _cbSendSystemDesc);
+  SEGGER_SYSVIEW_SetRAMBase(SYSVIEW_RAM_BASE);
 }
 
-/*********************************************************************
-*
-*       _write_r()
-*
-* Function description
-*   Low-level reentrant write function.
-*   libc subroutines will use this system routine for output to all files,
-*   including stdout.
-*   Write data via RTT.
-*/
-_ssize_t _write_r(struct _reent *r, int file, const void *ptr, size_t len) {
-  (void) file;  /* Not used, avoid warning */
-  (void) r;     /* Not used, avoid warning */
-  SEGGER_RTT_Write(0, ptr, len);
-  return len;
-}
-
-#endif
-/****** End Of File *************************************************/
+/*************************** End of file ****************************/
